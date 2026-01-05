@@ -49,7 +49,7 @@ spec:
         DOCKERHUB_USER = 'gandeev'
         APP_NAME = 'todo-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        SONAR_HOST_URL = 'http://sonarqube.default.svc.cluster.local:9000'
+        SONAR_HOST_URL = 'http://sonarqube-sonarqube.default.svc.cluster.local:9000'
     }
     stages {
         stage('Checkout') {
