@@ -79,7 +79,7 @@ spec:
 
   # 7. Kubectl (Deployer) - Added explicit resources
   - name: kubectl
-    image: bitnami/kubectl:1.28
+    image: bitnami/kubectl:latest
     command: ['cat']
     tty: true
     resources:
