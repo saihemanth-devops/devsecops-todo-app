@@ -8,27 +8,29 @@ metadata:
   labels:
     app: jenkins-agent
 spec:
-  # 1. The 'jnlp' container is the Agent itself. We give it more RAM to survive.
   containers:
+  # 1. JNLP AGENT (The Brain) - Increased Memory to prevent -2 error
   - name: jnlp
     resources:
       requests:
-        memory: "512Mi"
+        memory: "1Gi"
         cpu: "500m"
       limits:
-        memory: "1024Mi"
+        memory: "2Gi"
         cpu: "1000m"
-  
-  # 2. Node.js container
+
+  # 2. Node.js
   - name: node
     image: node:18-alpine
     command: ['cat']
     tty: true
     resources:
+      requests:
+        memory: "256Mi"
       limits:
         memory: "512Mi"
 
-  # 3. Docker (Builds images)
+  # 3. Docker (Builder)
   - name: docker
     image: docker:latest
     command: ['cat']
@@ -37,10 +39,12 @@ spec:
     - mountPath: /var/run/docker.sock
       name: docker-sock
     resources:
+      requests:
+        memory: "256Mi"
       limits:
-        memory: "512Mi"
+        memory: "1Gi"
 
-  # 4. Sonar Scanner (Heavy Java process)
+  # 4. Sonar Scanner
   - name: sonar
     image: sonarsource/sonar-scanner-cli:latest
     command: ['cat']
@@ -49,18 +53,20 @@ spec:
       requests:
         memory: "512Mi"
       limits:
-        memory: "1536Mi"  # 1.5 GB limit
+        memory: "1.5Gi"
 
-  # 5. Trivy (Security Scan)
+  # 5. Trivy
   - name: trivy
     image: aquasec/trivy:latest
     command: ['cat']
     tty: true
     resources:
+      requests:
+        memory: "256Mi"
       limits:
         memory: "1Gi"
 
-  # 6. Cypress (Chrome Browser - Very Heavy)
+  # 6. Cypress
   - name: cypress
     image: cypress/included:12.17.4
     command: ['cat']
@@ -69,12 +75,19 @@ spec:
       requests:
         memory: "1Gi"
       limits:
-        memory: "2560Mi" # 2.5 GB limit
+        memory: "2.5Gi"
 
+  # 7. Kubectl (Deployer) - Added explicit resources
   - name: kubectl
-    image: bitnami/kubectl:latest
+    image: bitnami/kubectl:1.28
     command: ['cat']
     tty: true
+    resources:
+      requests:
+        memory: "256Mi"
+      limits:
+        memory: "512Mi"
+
   volumes:
   - name: docker-sock
     hostPath:
@@ -83,10 +96,10 @@ spec:
         }
     }
     environment {
+        // --- CONFIGURATION ---
         DOCKERHUB_USER = 'gandeev'
         APP_NAME = 'todo-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
-        // Update if your service name is different
         SONAR_HOST_URL = 'http://sonarqube-sonarqube.default.svc.cluster.local:9000'
     }
     stages {
@@ -95,7 +108,9 @@ spec:
         stage('Security: SCA') { 
             steps { 
                 container('trivy') { 
-                    sh "trivy fs --format table -o fs-report.html ." 
+                    timeout(time: 5, unit: 'MINUTES') {
+                        sh "trivy fs --format table -o fs-report.html ." 
+                    }
                 } 
             } 
         }
@@ -128,9 +143,12 @@ spec:
             steps {
                 container('kubectl') {
                     script {
-                        sh "sed -i 's/REPLACE_ME/${IMAGE_TAG}/g' k8s/deployment.yaml"
-                        sh "kubectl apply -f k8s/"
-                        sh "kubectl rollout status deployment/todo-app-v1"
+                        // Using a simple retry block in case of network blips
+                        retry(3) {
+                            sh "sed -i 's/REPLACE_ME/${IMAGE_TAG}/g' k8s/deployment.yaml"
+                            sh "kubectl apply -f k8s/"
+                            sh "kubectl rollout status deployment/todo-app-v1"
+                        }
                     }
                 }
             }
@@ -140,8 +158,7 @@ spec:
             steps {
                 container('cypress') {
                     dir('app') {
-                        // Cypress can be slow to start, giving it 10 mins
-                        timeout(time: 10, unit: 'MINUTES') {
+                        timeout(time: 15, unit: 'MINUTES') {
                             sh "cypress run --config baseUrl=http://todo-app-service"
                         }
                     }
