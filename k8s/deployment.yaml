@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-app-v1
+  labels:
+    app: todo-app
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: todo-app
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: todo-app
+        version: v1
+    spec:
+      containers:
+      - name: todo-app
+        image: <YOUR_DOCKERHUB_USERNAME>/todo-app:REPLACE_ME
+        ports:
+        - containerPort: 3000
