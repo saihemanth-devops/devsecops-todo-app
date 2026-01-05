@@ -9,24 +9,22 @@ metadata:
     app: jenkins-agent
 spec:
   containers:
-  # 1. JNLP AGENT (The Brain) - Increased Memory to prevent -2 error
+  # 1. JNLP AGENT (The Brain) - Reduced slightly to save space
   - name: jnlp
     resources:
       requests:
-        memory: "1Gi"
+        memory: "512Mi"
         cpu: "500m"
       limits:
-        memory: "2Gi"
+        memory: "1Gi"  # Reduced from 2Gi
         cpu: "1000m"
 
-  # 2. Node.js
+  # 2. Node.js (Lightweight)
   - name: node
     image: node:18-alpine
     command: ['cat']
     tty: true
     resources:
-      requests:
-        memory: "256Mi"
       limits:
         memory: "512Mi"
 
@@ -39,12 +37,10 @@ spec:
     - mountPath: /var/run/docker.sock
       name: docker-sock
     resources:
-      requests:
-        memory: "256Mi"
       limits:
-        memory: "1Gi"
+        memory: "768Mi" # Reduced
 
-  # 4. Sonar Scanner
+  # 4. Sonar Scanner (Java) - Tightened limits
   - name: sonar
     image: sonarsource/sonar-scanner-cli:latest
     command: ['cat']
@@ -53,7 +49,7 @@ spec:
       requests:
         memory: "512Mi"
       limits:
-        memory: "1.5Gi"
+        memory: "1024Mi" # Capped at 1GB
 
   # 5. Trivy
   - name: trivy
@@ -61,32 +57,30 @@ spec:
     command: ['cat']
     tty: true
     resources:
-      requests:
-        memory: "256Mi"
       limits:
-        memory: "1Gi"
+        memory: "768Mi"
 
-  # 6. Cypress
+  # 6. Cypress (Browser) - Squeezed to minimum
   - name: cypress
     image: cypress/included:12.17.4
     command: ['cat']
     tty: true
     resources:
       requests:
-        memory: "1Gi"
+        memory: "512Mi"
       limits:
-        memory: "2.5Gi"
+        memory: "1536Mi" # Reduced to 1.5GB
 
-  # 7. Kubectl (Deployer) - Added explicit resources
+  # 7. Kubectl (Deployer) - Using "latest" to fix previous error
   - name: kubectl
     image: bitnami/kubectl:latest
     command: ['cat']
     tty: true
     resources:
       requests:
-        memory: "256Mi"
+        memory: "128Mi"
       limits:
-        memory: "512Mi"
+        memory: "256Mi"
 
   volumes:
   - name: docker-sock
@@ -96,7 +90,6 @@ spec:
         }
     }
     environment {
-        // --- CONFIGURATION ---
         DOCKERHUB_USER = 'gandeev'
         APP_NAME = 'todo-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
@@ -143,10 +136,12 @@ spec:
             steps {
                 container('kubectl') {
                     script {
-                        // Using a simple retry block in case of network blips
-                        retry(3) {
-                            sh "sed -i 's/REPLACE_ME/${IMAGE_TAG}/g' k8s/deployment.yaml"
-                            sh "kubectl apply -f k8s/"
+                        // Added a small sleep to let previous processes release RAM
+                        sh "sleep 5"
+                        sh "sed -i 's/REPLACE_ME/${IMAGE_TAG}/g' k8s/deployment.yaml"
+                        sh "kubectl apply -f k8s/"
+                        // Reduced wait time
+                        timeout(time: 2, unit: 'MINUTES') {
                             sh "kubectl rollout status deployment/todo-app-v1"
                         }
                     }
@@ -158,7 +153,7 @@ spec:
             steps {
                 container('cypress') {
                     dir('app') {
-                        timeout(time: 15, unit: 'MINUTES') {
+                        timeout(time: 10, unit: 'MINUTES') {
                             sh "cypress run --config baseUrl=http://todo-app-service"
                         }
                     }
