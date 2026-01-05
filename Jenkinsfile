@@ -20,6 +20,11 @@ spec:
     volumeMounts:
     - mountPath: /var/run/docker.sock
       name: docker-sock
+  # CHANGED: We now use the official Sonar Scanner image
+  - name: sonar
+    image: sonarsource/sonar-scanner-cli:latest
+    command: ['cat']
+    tty: true
   - name: trivy
     image: aquasec/trivy:latest
     command: ['cat']
@@ -41,7 +46,7 @@ spec:
     }
     environment {
         // --- CONFIGURATION ---
-        DOCKERHUB_USER = 'gandeev'  // <--- FIXED: Now matches your login
+        DOCKERHUB_USER = 'gandeev'
         APP_NAME = 'todo-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
         SONAR_HOST_URL = 'http://sonarqube.default.svc.cluster.local:9000'
@@ -56,7 +61,6 @@ spec:
         stage('Security: SCA (Trivy FS)') {
             steps {
                 container('trivy') {
-                    // Scan the filesystem for vulnerable dependencies
                     sh "trivy fs --format table -o fs-report.html ."
                 }
             }
@@ -64,19 +68,16 @@ spec:
 
         stage('Code Quality: SonarQube') {
             steps {
-                container('node') {
-                    script {
-                        // Install scanner and run analysis
-                        sh 'npm install -g sonar-scanner'
-                        withSonarQubeEnv('SonarQube') { 
-                            sh """
-                            sonar-scanner \
-                            -Dsonar.projectKey=todo-app \
-                            -Dsonar.sources=. \
-                            -Dsonar.host.url=${SONAR_HOST_URL} \
-                            -Dsonar.login=\$SONAR_AUTH_TOKEN
-                            """
-                        }
+                // FIXED: Running inside the 'sonar' container
+                container('sonar') {
+                    withSonarQubeEnv('SonarQube') { 
+                        sh """
+                        sonar-scanner \
+                        -Dsonar.projectKey=todo-app \
+                        -Dsonar.sources=. \
+                        -Dsonar.host.url=${SONAR_HOST_URL} \
+                        -Dsonar.login=\$SONAR_AUTH_TOKEN
+                        """
                     }
                 }
             }
@@ -86,12 +87,8 @@ spec:
             steps {
                 container('docker') {
                     script {
-                        // Login with the credentials ID 'docker-hub-credentials'
                         docker.withRegistry('https://index.docker.io/v1/', 'docker-hub-credentials') {
-                            // Build image: gandeev/todo-app:3
                             def appImage = docker.build("${DOCKERHUB_USER}/${APP_NAME}:${IMAGE_TAG}", "./app")
-                            
-                            // Push image to Docker Hub
                             appImage.push()
                             appImage.push("latest")
                         }
@@ -103,7 +100,6 @@ spec:
         stage('Security: Image Scan (Trivy)') {
             steps {
                 container('trivy') {
-                    // Scan the image we just built
                     sh "trivy image ${DOCKERHUB_USER}/${APP_NAME}:${IMAGE_TAG}"
                 }
             }
@@ -113,11 +109,8 @@ spec:
             steps {
                 container('kubectl') {
                     script {
-                        // Update the deployment yaml with the new image tag
                         sh "sed -i 's/REPLACE_ME/${IMAGE_TAG}/g' k8s/deployment.yaml"
-                        // Apply to cluster
                         sh "kubectl apply -f k8s/"
-                        // Wait for rollout
                         sh "kubectl rollout status deployment/todo-app-v1"
                     }
                 }
@@ -128,7 +121,6 @@ spec:
             steps {
                 container('cypress') {
                     dir('app') {
-                        // Run tests against the internal service
                         sh "cypress run --config baseUrl=http://todo-app-service"
                     }
                 }
