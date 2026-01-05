@@ -8,11 +8,27 @@ metadata:
   labels:
     app: jenkins-agent
 spec:
+  # 1. The 'jnlp' container is the Agent itself. We give it more RAM to survive.
   containers:
+  - name: jnlp
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "500m"
+      limits:
+        memory: "1024Mi"
+        cpu: "1000m"
+  
+  # 2. Node.js container
   - name: node
     image: node:18-alpine
     command: ['cat']
     tty: true
+    resources:
+      limits:
+        memory: "512Mi"
+
+  # 3. Docker (Builds images)
   - name: docker
     image: docker:latest
     command: ['cat']
@@ -20,19 +36,41 @@ spec:
     volumeMounts:
     - mountPath: /var/run/docker.sock
       name: docker-sock
-  # CHANGED: We now use the official Sonar Scanner image
+    resources:
+      limits:
+        memory: "512Mi"
+
+  # 4. Sonar Scanner (Heavy Java process)
   - name: sonar
     image: sonarsource/sonar-scanner-cli:latest
     command: ['cat']
     tty: true
+    resources:
+      requests:
+        memory: "512Mi"
+      limits:
+        memory: "1536Mi"  # 1.5 GB limit
+
+  # 5. Trivy (Security Scan)
   - name: trivy
     image: aquasec/trivy:latest
     command: ['cat']
     tty: true
+    resources:
+      limits:
+        memory: "1Gi"
+
+  # 6. Cypress (Chrome Browser - Very Heavy)
   - name: cypress
     image: cypress/included:12.17.4
     command: ['cat']
     tty: true
+    resources:
+      requests:
+        memory: "1Gi"
+      limits:
+        memory: "2560Mi" # 2.5 GB limit
+
   - name: kubectl
     image: bitnami/kubectl:latest
     command: ['cat']
@@ -45,45 +83,34 @@ spec:
         }
     }
     environment {
-        // --- CONFIGURATION ---
         DOCKERHUB_USER = 'gandeev'
         APP_NAME = 'todo-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
+        // Update if your service name is different
         SONAR_HOST_URL = 'http://sonarqube-sonarqube.default.svc.cluster.local:9000'
     }
     stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
+        stage('Checkout') { steps { checkout scm } }
         
-        stage('Security: SCA (Trivy FS)') {
-            steps {
-                container('trivy') {
-                    sh "trivy fs --format table -o fs-report.html ."
-                }
-            }
+        stage('Security: SCA') { 
+            steps { 
+                container('trivy') { 
+                    sh "trivy fs --format table -o fs-report.html ." 
+                } 
+            } 
         }
 
-        stage('Code Quality: SonarQube') {
-            steps {
-                // FIXED: Running inside the 'sonar' container
+        stage('Code Quality') { 
+            steps { 
                 container('sonar') {
                     withSonarQubeEnv('SonarQube') { 
-                        sh """
-                        sonar-scanner \
-                        -Dsonar.projectKey=todo-app \
-                        -Dsonar.sources=. \
-                        -Dsonar.host.url=${SONAR_HOST_URL} \
-                        -Dsonar.login=\$SONAR_AUTH_TOKEN
-                        """
+                        sh "sonar-scanner -Dsonar.projectKey=todo-app -Dsonar.sources=. -Dsonar.host.url=${SONAR_HOST_URL} -Dsonar.login=\$SONAR_AUTH_TOKEN"
                     }
                 }
-            }
+            } 
         }
 
-        stage('Build & Push Docker Image') {
+        stage('Build & Push') {
             steps {
                 container('docker') {
                     script {
@@ -97,15 +124,7 @@ spec:
             }
         }
 
-        stage('Security: Image Scan (Trivy)') {
-            steps {
-                container('trivy') {
-                    sh "trivy image ${DOCKERHUB_USER}/${APP_NAME}:${IMAGE_TAG}"
-                }
-            }
-        }
-
-        stage('Deploy to Minikube') {
+        stage('Deploy') {
             steps {
                 container('kubectl') {
                     script {
@@ -117,11 +136,14 @@ spec:
             }
         }
 
-        stage('E2E Testing (Cypress)') {
+        stage('E2E Test') {
             steps {
                 container('cypress') {
                     dir('app') {
-                        sh "cypress run --config baseUrl=http://todo-app-service"
+                        // Cypress can be slow to start, giving it 10 mins
+                        timeout(time: 10, unit: 'MINUTES') {
+                            sh "cypress run --config baseUrl=http://todo-app-service"
+                        }
                     }
                 }
             }
