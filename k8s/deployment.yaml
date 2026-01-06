@@ -4,15 +4,24 @@ metadata:
   name: todo-app-v1
   labels:
     app: todo-app
+<<<<<<< HEAD
+=======
+    version: v1
+>>>>>>> f9ba6617eb7d8c8c20976223f3cdf6c813d0ec87
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: todo-app
+<<<<<<< HEAD
+=======
+      version: v1
+>>>>>>> f9ba6617eb7d8c8c20976223f3cdf6c813d0ec87
   template:
     metadata:
       labels:
         app: todo-app
+<<<<<<< HEAD
     spec:
       containers:
       - name: todo-app
@@ -31,3 +40,12 @@ spec:
     targetPort: 3000
   selector:
     app: todo-app
+=======
+        version: v1
+    spec:
+      containers:
+      - name: todo-app
+        image: <YOUR_DOCKERHUB_USERNAME>/todo-app:REPLACE_ME
+        ports:
+        - containerPort: 3000
+>>>>>>> f9ba6617eb7d8c8c20976223f3cdf6c813d0ec87

@@ -1,7 +1,12 @@
 {
   "name": "todo-app",
   "version": "1.0.0",
+<<<<<<< HEAD
   "main": "server.js",
   "scripts": { "start": "node server.js" },
   "dependencies": { "express": "^4.18.2" }
+=======
+  "scripts": { "start": "node server.js" },
+  "dependencies": { "express": "^4.17.1", "body-parser": "^1.19.0" }
+>>>>>>> f9ba6617eb7d8c8c20976223f3cdf6c813d0ec87
 }
